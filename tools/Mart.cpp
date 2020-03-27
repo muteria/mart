@@ -38,6 +38,7 @@ using namespace mart;
 static std::string outputDir("mart-out-");
 static const std::string mutantsFolder("mutants.out");
 static const std::string generalInfo("info");
+static const std::string readmefile("README.md");
 static std::stringstream loginfo;
 static std::string outFile;
 static const std::string tmpFuncModuleFolder("tmp-func-module-dir.tmp");
@@ -188,8 +189,13 @@ bool dumpMutantsCallback(Mutation *mutEng,
           } else {
             backedFuncsByMods.emplace(
                 formutsModule,
+#if (LLVM_VERSION_MAJOR <= 3) && (LLVM_VERSION_MINOR < 9)
                 llvm::CloneFunction(formutsModule->getFunction(funcName), vmap,
-                                    true /*moduleLevelChanges*/));
+                                    true /*moduleLevelChanges*/)
+#else
+                llvm::CloneFunction(formutsModule->getFunction(funcName), vmap)
+#endif
+            );
           }
         }
 
@@ -307,6 +313,9 @@ llvm::cl::opt<std::string> extraLinkingFlags(
   llvm::cl::opt<bool> disableDumpMetaIRbc(
       "no-Meta",
       llvm::cl::desc("Disable dumping Meta Module after applying TCE"));
+  llvm::cl::opt<bool> disableDumpOptimalMetaIRbc(
+      "no-Opt-Meta",
+      llvm::cl::desc("Disable dumping Optimal Meta Module after applying TCE (to run directely)"));
   llvm::cl::opt<bool> dumpMutants(
       "write-mutants", llvm::cl::desc("Enable writing mutant files"));
   llvm::cl::opt<bool> disabledWeakMutation(
@@ -330,14 +339,15 @@ llvm::cl::opt<std::string> extraLinkingFlags(
   clock_t curClockTime;
 
   const char *wmLogFuncinputIRfileName = "wmlog-driver.bc";
+  const char *metamutant_selector_inputIRfileName = "metamutant_selector.bc";
 
   /// \brief set this to false if the module is small enough, that all mutants
   /// will fit in memory
   bool isTCEFunctionMode = true;
 
-#ifdef MART_SEMU_GENMU_OBJECTFILE
+#ifdef MART_GENMU_OBJECTFILE
   bool dumpMetaObj = false;
-#endif //#ifdef MART_SEMU_GENMU_OBJECTFILE
+#endif //#ifdef MART_GENMU_OBJECTFILE
 
   std::string useful_conf_dir = getUsefulAbsPath(argv[0]);
 
@@ -349,7 +359,8 @@ llvm::cl::opt<std::string> extraLinkingFlags(
   assert(!inputIRfile.empty() && "Error: No input llvm IR file passed!");
 
   llvm::Module *moduleM;
-  std::unique_ptr<llvm::Module> modWMLog(nullptr), modCovLog(nullptr), _M;
+  std::unique_ptr<llvm::Module> metamutant_sel(nullptr), modWMLog(nullptr), 
+                                modCovLog(nullptr), optMetaMu(nullptr), _M;
 
   // Read IR into moduleM
   /// llvm::LLVMContext context;
@@ -357,6 +368,14 @@ llvm::cl::opt<std::string> extraLinkingFlags(
     return 1;
   moduleM = _M.get();
   // ~
+
+  /// MetaMutantSelector
+  std::string metamutant_selector_inputIRfile(useful_conf_dir +
+                                    metamutant_selector_inputIRfileName);
+  // get the module containing the metamutant selector. 
+  // to be linked with meta module
+  if (!ReadWriteIRObj::readIR(metamutant_selector_inputIRfile, metamutant_sel))
+    return 1;
 
   /// Weak mutation
   if (!disabledWeakMutation) {
@@ -487,7 +506,7 @@ llvm::cl::opt<std::string> extraLinkingFlags(
                   "mutants IRs (with initially "
                << mut.getHighestMutantID() << " mutants)...\n";
   curClockTime = clock();
-  mut.doTCE(modWMLog, modCovLog, dumpMutants, isTCEFunctionMode);
+  mut.doTCE(optMetaMu, modWMLog, modCovLog, dumpMutants, isTCEFunctionMode);
   llvm::outs() << "Mart@Progress: Removing TCE Duplicates  & WM & writing "
                   "mutants IRs took: "
                << (float)(clock() - curClockTime) / CLOCKS_PER_SEC
@@ -506,6 +525,15 @@ llvm::cl::opt<std::string> extraLinkingFlags(
                                               metaMuIRFileSuffix))
       assert(false && "Failed to output post-TCE meta-mutatant IR file");
   }
+
+  //@ Print post-TCE optimized meta-mutant (just to run)
+  if (!disableDumpOptimalMetaIRbc) {
+    mut.linkMetamoduleWithMutantSelection(optMetaMu, metamutant_sel);
+    if (!ReadWriteIRObj::writeIR(optMetaMu.get(), outputDir + "/" + outFile +
+                                              optimizedMetaMuIRFileSuffix))
+      assert(false && "Failed to output post-TCE meta-mutatant IR file");
+  }
+
 
 //@ print mutants
 /*if (dumpMutants)
@@ -538,7 +566,7 @@ mutantsDir+"//"+std::to_string(mid)+"//"+outFile+".bc"))
     }
 }*/
 
-#ifdef MART_SEMU_GENMU_OBJECTFILE
+#ifdef MART_GENMU_OBJECTFILE
   if (dumpMetaObj) {
 #if (LLVM_VERSION_MAJOR <= 3) && (LLVM_VERSION_MINOR < 5)
     std::unique_ptr<llvm::Module> forObjModule(llvm::CloneModule(moduleM));
@@ -551,7 +579,7 @@ mutantsDir+"//"+std::to_string(mid)+"//"+outFile+".bc"))
                                                           metaMuObjFileSuffix))
       assert(false && "Failed to output meta-mutatant object file");
   }
-#endif //#ifdef MART_SEMU_GENMU_OBJECTFILE
+#endif //#ifdef MART_GENMU_OBJECTFILE
   // llvm::errs() << "@After Mutation->TCE\n"; moduleM->dump(); llvm::errs() <<
   // "\n";
 
@@ -593,7 +621,8 @@ mutantsDir+"//"+std::to_string(mid)+"//"+outFile+".bc"))
     std::string compileMutsScript(useful_conf_dir + "/CompileAllMuts.sh");
     execl("/bin/bash", "bash",
           compileMutsScript.c_str(),
-          STRINGIFY(LLVM_TOOLS_BINARY_DIR), outputDir.c_str(), 
+          //STRINGIFY(LLVM_TOOLS_BINARY_DIR), outputDir.c_str(), 
+          (LLVM_TOOLS_BINARY_DIR), outputDir.c_str(), 
           tmpFuncModuleFolder.c_str(), keepMutantsBCs ? "no" : "yes", 
           extraLinkingFlags.c_str(), (char *)NULL);
     llvm::errs() << "\n:( ERRORS: Mutants Compile script failed (probably not "
@@ -637,6 +666,78 @@ mutantsDir+"//"+std::to_string(mid)+"//"+outFile+".bc"))
   } else {
     llvm::errs() << "Unable to create info file:"
                  << outputDir + "/" + generalInfo << "\n\n";
+    assert(false);
+  }
+
+  xxx.clear();
+  xxx.open(outputDir + "/" + readmefile);
+  if (xxx.is_open()) {
+    int ind = 1;
+    xxx << "## Informations obout the output directory.\n";
+    xxx << "```\nMutant IDs are integers greater or equal to 1. "
+        << "For every bitcode (.bc), a corresponding native executable "
+        << "is also generated.\n```\n";
+    xxx << ind++ << ". `" << generalInfo << "` file: contain general "
+        << "information about the mutant generation run, such as the "
+        << "generation time, the number of mutant prior TCE in memory "
+        << "redundant mutants removal.\n";
+    xxx << ind++ << ". `" << (outFile + commonIRSuffix) << "` file: "
+        << "Is the bitcode file that is mutated. it is the input IR file "
+        << "after preprocessing to ease mutation (e.g. removing phi nodes).\n";
+    if (!disableDumpMutantInfos)
+      xxx << ind++ << ". `" << mutantsInfosFileName << "` file: contains "
+          << "the description "
+          << "remaining after in memory TCE redundant mutants removal.\n";
+    if (!disabledWeakMutation)
+      xxx << ind++ << ". `" << (outFile + wmOutIRFileSuffix) << "` file: "
+          << "representing the weak mutation labeled version of the program, "
+          << "used to measure Weak Mutation. Specify the log file to print "
+          << "the weakly killed mutant' IDs after a test execution by setting "
+          << "the environment variable 'MART_WM_LOG_OUTPUT' to it. By default, "
+          << "The lof file used is 'mart.defaultFileName.WM.covlabels', "
+          << "located in the directory from where the program is called.\n";
+    if (!disabledMutantCoverage)
+      xxx << ind++ << ". `" << (outFile + covOutIRFileSuffix) << "` file: "
+          << "representing the mutant coverage labeled version of the program, "
+          << "used to measure Mutant statement coverage. "
+          << "Specify the log file to print "
+          << "the covered mutant' IDs after a test execution by setting "
+          << "the environment variable 'MART_WM_LOG_OUTPUT' to it. By default, "
+          << "The lof file used is 'mart.defaultFileName.WM.covlabels', "
+          << "located in the directory from where the program is called.\n";
+    if (!dumpPreTCEMeta)
+      xxx << ind++ << ". `" << (outFile + preTCEMetaIRFileSuffix)
+          << "` file: is the raw meta-mutants program before in-memory TCE's"
+          << "redundant mutats removal.\n";
+    if (!disableDumpMetaIRbc)
+      xxx << ind++ << ". `" << (outFile + metaMuIRFileSuffix) 
+          << "` file: is the  raw meta-mutants program after in-memory TCE's"
+          << "redundant mutats removal (only contain mutants after"
+          << "in-memory TCE).\n";
+    if (!disableDumpOptimalMetaIRbc)
+      xxx << ind++ << ". `" << (outFile + optimizedMetaMuIRFileSuffix) 
+          << "` file: is the optimized meta-mutant after in-memory TCE's"
+          << "redundant mutats removal. The difference with the RAW "
+          << "meta-mutant is that it can be used directly to execute mutants "
+          << "by setting the environment variable 'MART_SELECTED_MUTANT_ID' "
+          << "to the mutant ID.\n";
+    if (dumpMutants) {
+      xxx << ind++ << ". `" << mutantsFolder << "` folder: contain the "
+          << "separate mutant "
+          << "folder. Each folder is named wih an integer representing "
+          << "the corresponding mutant ID. Executable files for the "
+          << " corresponding mutant is located in the mutant ID folder.\n";
+      xxx << ind++ << ". `fdupes_duplicates.json` file: contain mutant ID "
+          << "mapping of mutants after on disk TCE (occuring when separate )"
+          << "mutants are dumped. Each key is the ID of the mutant kept and "
+          << "the value is the list of mutants duplicate to the key, and that "
+          << "were removed from on disk TCE. Note that the key that is '0' "
+          << "correspond to the original program.\n";
+    }
+    xxx.close();
+  } else {
+    llvm::errs() << "Unable to create readme file:"
+                 << outputDir + "/" + readmefile << "\n\n";
     assert(false);
   }
 

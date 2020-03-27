@@ -1,5 +1,5 @@
-#ifndef __MART_SEMU_GENMU_operatorClasses__SwitchCases__
-#define __MART_SEMU_GENMU_operatorClasses__SwitchCases__
+#ifndef __MART_GENMU_operatorClasses__SwitchCases__
+#define __MART_GENMU_operatorClasses__SwitchCases__
 
 /**
  * -==== SwitchCases.h
@@ -171,8 +171,13 @@ public:
               toMatchMutant.setToCloneStmtIROf(toMatch, MI);
               llvm::SwitchInst *clonesw =
                   llvm::dyn_cast<llvm::SwitchInst>(toMatchMutant.getIRAt(pos));
+#if (LLVM_VERSION_MAJOR <= 4)
               clonesw->findCaseValue(caseval).setSuccessor(
                   clonesw->getDefaultDest());
+#else
+              (*(clonesw->findCaseValue(caseval))).setSuccessor(
+                  clonesw->getDefaultDest());
+#endif
 
               resultMuts.add(/*toMatch, */ toMatchMutant, repl,
                              std::vector<unsigned>({pos}));
@@ -215,4 +220,4 @@ public:
 
 } // namespace mart
 
-#endif //__MART_SEMU_GENMU_operatorClasses__SwitchCases__
+#endif //__MART_GENMU_operatorClasses__SwitchCases__

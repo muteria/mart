@@ -10,8 +10,8 @@
  * mutation
  */
 
-#ifndef __MART_SEMU_GENMU_mutation__
-#define __MART_SEMU_GENMU_mutation__
+#ifndef __MART_GENMU_mutation__
+#define __MART_GENMU_mutation__
 
 #include <string>
 #include <vector>
@@ -35,7 +35,7 @@ class Mutation {
   std::string mutantIDSelectorName_Func;
   std::string postMutationPointFuncName;
 
-  // Tell wheter the mutation is to be used with KLEE-SEMu
+  // Tell wheter the mutation is to be used with KS
   // If so, insert at mutation point a function call whose 2 arguments
   // are respectively the minID and MaxID of mutants at that point (mutant IDs
   // are seuentially attributed)
@@ -65,6 +65,8 @@ class Mutation {
 
   const char *covLogFuncName = "martLLVM_COV_Log__Function";
 
+  const char *metamutantSelectorFuncname = "martLLVM_Metamutant_mutant_selector";
+
   // This fuction flushes the logged mutant to file(call
   // this before actual execution of the statement).
   const char *wmFFlushFuncName = "martLLVM_WM_Log__Function_Explicit_FFlush";
@@ -86,8 +88,9 @@ public:
            DumpMutFunc_t writeMutsF, std::string scopeJsonFile = "");
   ~Mutation();
   bool doMutate(); // Transforms module
-  void doTCE(std::unique_ptr<llvm::Module> &modWMLog, std::unique_ptr<llvm::Module> &modCovLog, bool writeMuts = false,
-             bool isTCEFunctionMode = false); // Transforms module
+  void doTCE(std::unique_ptr<llvm::Module> &optMetaMu, std::unique_ptr<llvm::Module> &modWMLog, 
+            std::unique_ptr<llvm::Module> &modCovLog, bool writeMuts = false,
+            bool isTCEFunctionMode = false); // Transforms module
   void setModFuncToFunction(llvm::Module *Mod, llvm::Function *srcF,
                             llvm::Function *targetF = nullptr);
   unsigned getHighestMutantID(llvm::Module const *module = nullptr);
@@ -96,6 +99,11 @@ public:
   void dumpMutantInfos(std::string filename, std::string eqdup_filename);
   // llvm::Module & getMetaMutantModule() {return currentMetaMutantModule;}
   std::string getMutationStats();
+
+  // Utilities
+  void linkMetamoduleWithMutantSelection(
+                        std::unique_ptr<llvm::Module> &optMetaMu,
+                        std::unique_ptr<llvm::Module> &mutantSelectorMod);
 
 private:
   bool getConfiguration(std::string &mutconfFile);
@@ -159,4 +167,4 @@ private:
 
 } // namespace mart
 
-#endif //__MART_SEMU_GENMU_mutation__
+#endif //__MART_GENMU_mutation__

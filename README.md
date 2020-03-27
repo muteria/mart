@@ -12,7 +12,7 @@
 ---
 _Please use the following reference to cite this tool_ 
 
-Thierry Titcheu Chekam, Mike Papadakis, and Yves Le Traon. 2019. Mart: A Mutant Generation Tool for LLVM. In Proceedings of the 27th ACM Joint European Software Engineering Conference and Symposium on the Foundations of Software Engineering (ESEC/FSE ’19), August 26–30, 2019, Tallinn, Estonia. ACM, New York, NY, USA, 5 pages. https://doi.org/10.1145/3338906.3341180
+[1] Thierry Titcheu Chekam, Mike Papadakis, and Yves Le Traon. 2019. Mart: A Mutant Generation Tool for LLVM. In Proceedings of the 27th ACM Joint European Software Engineering Conference and Symposium on the Foundations of Software Engineering (ESEC/FSE ï¿½19), August 26ï¿½30, 2019, Tallinn, Estonia. ACM, New York, NY, USA, 5 pages. https://doi.org/10.1145/3338906.3341180
 
 ---
 
@@ -102,6 +102,7 @@ cmake \
  -DLLVM_DIR=/home/mart/llvm-3.7.1/build/share/llvm/cmake \
   ../src
 ```
+`Note`: with llvm 6, the `LLVM_DIR` is set to `... build/lib/cmake/llvm` instead of `... build/share/llvm/cmake`.
 * make:
 compile using make while in the _build_ folder.
 ```
@@ -113,6 +114,10 @@ make
 ## Usage
 Checkout the usage demo video [here](https://youtu.be/V2Hvi_iqiVE).
 ### Compile your code into LLVM bitcode (.bc) file
+Use `clang` to build the C language program (<SourceFile>.c) into LLVM bitcode (<BitCode>.c) with a command of the form:
+``` bash
+clang -c -emit-llvm -g <SourceFile>.c -o <BitFile>.bc
+```
 You may use [wllvm](https://github.com/travitch/whole-program-llvm) for large C/C++ projects. 
 Compile with `debug` flag enable (`-g` option for C/C++ compilers gcc and clang) and without optimization to have mutants closer to source code mutants.
 

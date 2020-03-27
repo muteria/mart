@@ -9,8 +9,8 @@
  * \brief     Define the classes and types used by mutation process
  */
 
-#ifndef __MART_SEMU_GENMU_typesops__
-#define __MART_SEMU_GENMU_typesops__
+#ifndef __MART_GENMU_typesops__
+#define __MART_GENMU_typesops__
 
 #include <set>
 #include <sstream>
@@ -142,7 +142,17 @@ public:
     } else {
       DL = new llvm::DataLayout(curModule);
     }
+#if (LLVM_VERSION_MAJOR <= 3) && (LLVM_VERSION_MINOR < 9)
     curContext = &(llvm::getGlobalContext());
+#else
+    if (curModule != nullptr) {
+        // was created in readIR
+        curContext = &(curModule->getContext());
+    } else {
+        static llvm::LLVMContext getGlobalContext;
+        curContext = &getGlobalContext;
+    }
+#endif
   }
   inline void setUserMaps(UserMaps *umaps) { usermaps = umaps; }
 
@@ -1371,12 +1381,12 @@ public:
     JsonBox::Object outJSON;
     getJson(outJSON);
     JsonBox::Value vout(outJSON);
-    vout.writeToFile(filename, false, false);
+    vout.writeToFile(filename, true, false);
 
     outJSON.clear();
     getEqDupJson(outJSON);
     JsonBox::Value eqdupvout(outJSON);
-    eqdupvout.writeToFile(eqdupfilename, false, false);
+    eqdupvout.writeToFile(eqdupfilename, true, false);
   }
 
   void getJson(JsonBox::Object &outJ) const {
@@ -1469,4 +1479,4 @@ public:
 
 } // namespace mart
 
-#endif //__MART_SEMU_GENMU_typesops__
+#endif //__MART_GENMU_typesops__

@@ -237,7 +237,11 @@ void Mutation::preprocessVariablePhi(llvm::Module &module) {
               continue;
 
             llvm::AllocaInst *Slot = new llvm::AllocaInst(
-                alloc_arr_size->getType(), nullptr,
+                alloc_arr_size->getType(), 
+#if (LLVM_VERSION_MAJOR >= 5)
+                0, // Adress Space default value
+#endif
+                nullptr,
                 alloc_arr_size->getName() + ".reg2mem", AllocaInsertionPoint);
             llvm::Instruction *loadinsertpt;
 #if (LLVM_VERSION_MAJOR <= 3) && (LLVM_VERSION_MINOR < 8)
@@ -306,7 +310,11 @@ llvm::AllocaInst *Mutation::MYDemotePHIToStack(llvm::PHINode *P,
   // Create a stack slot to hold the value.
   llvm::AllocaInst *Slot;
   if (AllocaPoint) {
-    Slot = new llvm::AllocaInst(P->getType(), nullptr,
+    Slot = new llvm::AllocaInst(P->getType(), 
+#if (LLVM_VERSION_MAJOR >= 5)
+                                0, // Adress Space default value
+#endif
+                                nullptr,
                                 P->getName() + ".reg2mem", AllocaPoint);
   } else {
     /*llvm::Function *F = P->getParent()->getParent();
@@ -403,7 +411,11 @@ llvm::AllocaInst *Mutation::MyDemoteRegToStack(llvm::Instruction &I,
   if (!crossBBUsers.empty()) {
     // Create a stack slot to hold the value.
     if (AllocaPoint) {
-      Slot = new llvm::AllocaInst(I.getType(), nullptr,
+      Slot = new llvm::AllocaInst(I.getType(), 
+#if (LLVM_VERSION_MAJOR >= 5)
+                                  0, // Adress Space default value
+#endif
+                                  nullptr,
                                   I.getName() + ".reg2mem", AllocaPoint);
     } else {
       /*llvm::Function *F = I.getParent()->getParent();
@@ -826,7 +838,11 @@ llvm::Function *Mutation::createKSFunc(llvm::Module &module, bool bodyOnly,
         ks_func_name,
         llvm::Type::getVoidTy(moduleInfo.getContext()),
         llvm::Type::getInt32Ty(moduleInfo.getContext()),
-        llvm::Type::getInt32Ty(moduleInfo.getContext()), NULL);
+        llvm::Type::getInt32Ty(moduleInfo.getContext())
+#if (LLVM_VERSION_MAJOR < 5)
+        , NULL
+#endif
+    );
     funcForKS = llvm::cast<llvm::Function>(c);
     if (!funcForKS) {
       llvm::errs() << "Failed to create function " << ks_func_name << "\n";
@@ -911,7 +927,7 @@ bool Mutation::doMutate() {
       moduleInfo.getContext(), llvm::APInt(32, 0, false)));
 
   // XXX: Insert definition of the function whose call argument will tell
-  // KLEE-SEMU which mutants to fork
+  // KS which mutants to fork
   if (forKLEESEMu) {
     funcForKLEESEMu = createGlobalMutIDSelector_Func(module);
   }
@@ -1459,7 +1475,7 @@ bool Mutation::doMutate() {
               llvm::IRBuilder<> sbuilder(lkt);
 
               // XXX: Insert definition of the function whose call argument will
-              // tell KLEE-SEMU which mutants to fork (done elsewhere)
+              // tell KS which mutants to fork (done elsewhere)
               if (forKLEESEMu) {
                 std::vector<llvm::Value *> argsv;
                 argsv.push_back(llvm::ConstantInt::get(
@@ -1743,7 +1759,11 @@ void Mutation::getWMConditions(
     for (auto *cinst : subcond)
       if (llvm::isa<llvm::Instruction>(cinst)) {
         llvm::dyn_cast<llvm::User>(cinst)->dropAllReferences();
+#if (LLVM_VERSION_MAJOR < 5)
         delete cinst;
+#else
+        cinst->deleteValue();
+#endif
       }
   conditions.clear();
   conditions.push_back(std::vector<llvm::Value *>({llvm::ConstantInt::getTrue(
@@ -1761,7 +1781,7 @@ void Mutation::computeWeakMutation(std::unique_ptr<llvm::Module> &cmodule,
 
   assert(!cmodule->getFunction(wmLogFuncName) && "Name clash for weak mutation "
                                                  "log function Name, please "
-                                                 "change it from you program");
+                                                 "change it from your program");
   assert(!cmodule->getFunction(wmFFlushFuncName) &&
          "Name clash for weak mutation FFlush function Name, please change it "
          "from you program");
@@ -1847,13 +1867,19 @@ void Mutation::computeWeakMutation(std::unique_ptr<llvm::Module> &cmodule,
               for (llvm::SwitchInst::CaseIt i = sw->case_begin(),
                                             e = sw->case_end();
                    i != e; ++i) {
+#if (LLVM_VERSION_MAJOR <= 4)
                 auto *mutIDConstInt = i.getCaseValue();
                 
-                // to be removed later
-                cases.push_back(mutIDConstInt); 
-
                 /// Now create the call to weak mutation log func.
                 auto *caseiBB = i.getCaseSuccessor(); // mutant
+#else
+                auto *mutIDConstInt = (*i).getCaseValue();
+                
+                /// Now create the call to weak mutation log func.
+                auto *caseiBB = (*i).getCaseSuccessor(); // mutant
+#endif
+                // to be removed later
+                cases.push_back(mutIDConstInt); 
 
                 /// Since each case of switch correspond to a mutant and 
                 /// each mutant has its own Basic Block, 
@@ -2047,10 +2073,10 @@ void Mutation::computeMutantCoverage(std::unique_ptr<llvm::Module> &metaModule,
       continue;
     
     // remove all mutants, keep oly original
-    cleanFunctionToMut(Func, 0/*original mutantID*/, mutantIDSelGlob, funcForKS, false/*verify*/, false/*remove semu func calls*/);
+    cleanFunctionToMut(Func, 0/*original mutantID*/, mutantIDSelGlob, funcForKS, false/*verify*/, false/*remove ks func calls*/);
   }
 
-  // make klee Semu function call cov log function
+  // make KS function call cov log function
   funcForKS->deleteBody();
   llvm::BasicBlock *block =
       llvm::BasicBlock::Create(metaModule->getContext(), "entry", funcForKS);
@@ -2260,8 +2286,9 @@ struct DuplicateEquivalentProcessor {
   }
 }; //~ struct DuplicateEquivalentProcessor
 
-void Mutation::doTCE(std::unique_ptr<llvm::Module> &modWMLog, std::unique_ptr<llvm::Module> &modCovLog, bool writeMuts,
-                     bool isTCEFunctionMode) {
+void Mutation::doTCE(std::unique_ptr<llvm::Module> &optMetaMu, std::unique_ptr<llvm::Module> &modWMLog, 
+                    std::unique_ptr<llvm::Module> &modCovLog, bool writeMuts,
+                    bool isTCEFunctionMode) {
   assert(currentMetaMutantModule && "Running TCE before mutation");
   llvm::Module &module = *currentMetaMutantModule;
 
@@ -2411,10 +2438,18 @@ void Mutation::doTCE(std::unique_ptr<llvm::Module> &modWMLog, std::unique_ptr<ll
         unsigned progressVLandmark = (maxIDOfFunc - id) * nextProgress / 100;
 
         vmap.clear();
-        workFStack.emplace(
-            llvm::CloneFunction(clonedM->getFunction(subjFunctionName), vmap,
-                                true /*moduleLevelChanges*/),
-            id, maxIDOfFunc);
+#if (LLVM_VERSION_MAJOR <= 3) && (LLVM_VERSION_MINOR < 9)
+        llvm::Function *cloneFuncTmp = llvm::CloneFunction(
+                                clonedM->getFunction(subjFunctionName), vmap,
+                                true /*moduleLevelChanges*/);
+#else
+        llvm::Function *cloneFuncTmp = llvm::CloneFunction(
+                                clonedM->getFunction(subjFunctionName), vmap);
+        // Here CloneFunction automatically add to module so remove 
+        // FIXME: Make it better by chnaging code to have it adde here fine
+        cloneFuncTmp->removeFromParent();
+#endif
+        workFStack.emplace(cloneFuncTmp, id, maxIDOfFunc);
 
         /// \brief Use binary approach(divide and conquer) to quickly obtain the
         /// module for each function. use DFS here to save memory (once seen
@@ -2461,8 +2496,16 @@ void Mutation::doTCE(std::unique_ptr<llvm::Module> &modWMLog, std::unique_ptr<ll
 
             // Clone
             vmap.clear();
+#if (LLVM_VERSION_MAJOR <= 3) && (LLVM_VERSION_MINOR < 9)
             llvm::Function *cloneFuncR = llvm::CloneFunction(
                 cloneFuncL, vmap, true /*moduleLevelChanges*/);
+#else
+            llvm::Function *cloneFuncR = llvm::CloneFunction(
+                cloneFuncL, vmap);
+            // Here CloneFunction automatically add to module so remove 
+            // FIXME: Make it better by chnaging code to have it adde here fine
+            cloneFuncR->removeFromParent();
+#endif
 
             // remove from module and set back original name
             cloneFuncL->removeFromParent();
@@ -2602,7 +2645,11 @@ void Mutation::doTCE(std::unique_ptr<llvm::Module> &modWMLog, std::unique_ptr<ll
               for (llvm::SwitchInst::CaseIt i = sw->case_begin(),
                                             e = sw->case_end();
                    i != e; ++i) {
+#if (LLVM_VERSION_MAJOR <= 4)
                 uint64_t curcase = i.getCaseValue()->getZExtValue();
+#else
+                uint64_t curcase = (*i).getCaseValue()->getZExtValue();
+#endif
                 if (curcase > toMID)
                   toMID = curcase;
                 if (curcase < fromMID)
@@ -2614,15 +2661,27 @@ void Mutation::doTCE(std::unique_ptr<llvm::Module> &modWMLog, std::unique_ptr<ll
                         moduleInfo.getContext(),
                         llvm::APInt(32, (uint64_t)(i), false)));
                 if (dup_eq_processor.duplicateMap.count(i) == 0) {
+#if (LLVM_VERSION_MAJOR <= 4)
                   toBeRemovedBB.push_back(cit.getCaseSuccessor());
+#else
+                  toBeRemovedBB.push_back((*cit).getCaseSuccessor());
+#endif
                   sw->removeCase(cit);
                 } else {
                   auto new_mid = dup_eq_processor.duplicateMap.at(i).front();
+#if (LLVM_VERSION_MAJOR <= 4)
                   cit.setValue(llvm::ConstantInt::get(
                       moduleInfo.getContext(),
                       llvm::APInt(32, (uint64_t)(new_mid), false)));
                   cit.getCaseSuccessor()->setName(
                       std::string("MART.Mutant_Mut") + std::to_string(new_mid));
+#else
+                  (*cit).setValue(llvm::ConstantInt::get(
+                      moduleInfo.getContext(),
+                      llvm::APInt(32, (uint64_t)(new_mid), false)));
+                  (*cit).getCaseSuccessor()->setName(
+                      std::string("MART.Mutant_Mut") + std::to_string(new_mid));
+#endif
                 }
               }
             }
@@ -2686,7 +2745,7 @@ void Mutation::doTCE(std::unique_ptr<llvm::Module> &modWMLog, std::unique_ptr<ll
         unsigned tmpHMID =
             dup_eq_processor.mutFunctions.size() - 1; // initial highestMutID
         dup_eq_processor.mutModules.resize(tmpHMID + 1, nullptr);
-        // set clonedOrig to have KLEE SEMU function as declaration, not definition
+        // set clonedOrig to have KS function as declaration, not definition
         if (forKLEESEMu) {
           llvm::Function *funcForKS = clonedOrig->getFunction(mutantIDSelectorName_Func);
           funcForKS->deleteBody();
@@ -2718,6 +2777,9 @@ void Mutation::doTCE(std::unique_ptr<llvm::Module> &modWMLog, std::unique_ptr<ll
              "Failed to dump weak mutantion IR. (can be null)");
     }
   }
+
+  optMetaMu.reset(ReadWriteIRObj::cloneModuleAndRelease(&module));
+  dup_eq_processor.tce.optimize(*(optMetaMu.get()), modModeOptLevel);
 
   // XXX create the final version of the meta-mutant file
   if (forKLEESEMu) {
@@ -2762,6 +2824,41 @@ void Mutation::doTCE(std::unique_ptr<llvm::Module> &modWMLog, std::unique_ptr<ll
 }
 
 /**
+ * \brief transform non optimized meta-mutant module into weak mutation module.
+ * @param cmodule is the meta mutant module. @note: it will be transformed into
+ * WM module, so clone module before this call
+ */
+void Mutation::linkMetamoduleWithMutantSelection(
+                            std::unique_ptr<llvm::Module> &optMetaMu,
+                            std::unique_ptr<llvm::Module> &mutantSelectorMod) {
+
+  assert(!optMetaMu->getFunction(metamutantSelectorFuncname) && 
+                                                "Name clash for mutant selector"
+                                                "function Name, please "
+                                                "change it from your program");
+
+  /// Link optMetaMu with the corresponding driver module (actually only need c
+  /// module)
+#if (LLVM_VERSION_MAJOR <= 3) && (LLVM_VERSION_MINOR < 8)
+  llvm::Linker linker(optMetaMu.get());
+  std::string ErrorMsg;
+  if (linker.linkInModule(mutantSelectorMod.get(), &ErrorMsg)) {
+    llvm::errs()
+        << "Failed to link meta mutant module with mutant selector module"
+        << ErrorMsg << "\n";
+    assert(false);
+  }
+  mutantSelectorMod.reset(nullptr);
+#else
+  llvm::Linker linker(*optMetaMu);
+  if (linker.linkInModule(std::move(mutantSelectorMod))) {
+    assert(false &&
+           "Failed to link meta mutant module with mutant selector module");
+  }
+#endif
+}
+
+/**
  * \brief Create the post mutation point function and insert as needed
  */
 void Mutation::applyPostMutationPointForKSOnMetaModule(llvm::Module &module) {
@@ -2797,11 +2894,18 @@ void Mutation::applyPostMutationPointForKSOnMetaModule(llvm::Module &module) {
               // Mutants
               for (auto csit = sw->case_begin(), cse = sw->case_end();
                    csit != cse; ++csit) {
+#if (LLVM_VERSION_MAJOR <= 4)
                 llvm::TerminatorInst* mutBBterm_i = 
                             llvm::dyn_cast<llvm::TerminatorInst>(
                                         csit.getCaseSuccessor()->getTerminator());
-                assert (mutBBterm_i && "malformed mutant BB");
                 uint64_t curcaseuint = csit.getCaseValue()->getZExtValue();
+#else
+                llvm::TerminatorInst* mutBBterm_i = 
+                            llvm::dyn_cast<llvm::TerminatorInst>(
+                                        (*csit).getCaseSuccessor()->getTerminator());
+                uint64_t curcaseuint = (*csit).getCaseValue()->getZExtValue();
+#endif
+                assert (mutBBterm_i && "malformed mutant BB");
                 for (auto sid = 0; sid < mutBBterm_i->getNumSuccessors(); ++sid) {
                   llvm::BasicBlock * pointBB = mutBBterm_i->getSuccessor(sid);
                   pointBB2mutantIDVect[pointBB].push_back(curcaseuint);
@@ -2879,7 +2983,11 @@ void Mutation::cleanFunctionSWmIDRange(llvm::Function &Func,
             tmpCaseVals.clear();
             for (auto csit = sw->case_begin(), cse = sw->case_end();
                  csit != cse; ++csit) {
+#if (LLVM_VERSION_MAJOR <= 4)
               llvm::ConstantInt *curcase = csit.getCaseValue();
+#else
+              llvm::ConstantInt *curcase = (*csit).getCaseValue();
+#endif
               uint64_t curcaseuint = curcase->getZExtValue();
               if (curcaseuint > mIDTo || curcaseuint < mIDFrom)
                 continue;
@@ -2890,7 +2998,11 @@ void Mutation::cleanFunctionSWmIDRange(llvm::Function &Func,
               // Make all PHI nodes that referred to BB now refer to Pred as
               // their
               // source...
+#if (LLVM_VERSION_MAJOR <= 4)
               llvm::BasicBlock *citSucc = sw->case_default().getCaseSuccessor();
+#else
+              llvm::BasicBlock *citSucc = (*(sw->case_default())).getCaseSuccessor();
+#endif
               llvm::BasicBlock *swBB = sw->getParent();
               citSucc->replaceAllUsesWith(swBB);
               // Move all definitions in the successor to the predecessor...
@@ -2902,7 +3014,11 @@ void Mutation::cleanFunctionSWmIDRange(llvm::Function &Func,
             } else {
               for (auto csv : tmpCaseVals) {
                 llvm::SwitchInst::CaseIt csit = sw->findCaseValue(csv);
+#if (LLVM_VERSION_MAJOR <= 4)
                 toBeRemovedBB.push_back(csit.getCaseSuccessor());
+#else
+                toBeRemovedBB.push_back((*csit).getCaseSuccessor());
+#endif
                 sw->removeCase(csit);
               }
             }
@@ -2948,17 +3064,35 @@ void Mutation::cleanFunctionToMut(llvm::Function &Func, MutantIDType mutantID,
             llvm::BasicBlock *swBB = sw->getParent();
             if (cit == sw->case_default()) {
               // Not the mutants (mutants is same as orig here)
+#if (LLVM_VERSION_MAJOR <= 4)
               citSucc = cit.getCaseSuccessor();
+#else
+              citSucc = (*cit).getCaseSuccessor();
+#endif
               for (auto csit = sw->case_begin(), cse = sw->case_end();
                    csit != cse; ++csit)
+#if (LLVM_VERSION_MAJOR <= 4)
                 if (csit.getCaseSuccessor() != citSucc)
                   toBeRemovedBB.push_back(csit.getCaseSuccessor());
+#else
+                if ((*csit).getCaseSuccessor() != citSucc)
+                  toBeRemovedBB.push_back((*csit).getCaseSuccessor());
+#endif
             } else { // mutants
+#if (LLVM_VERSION_MAJOR <= 4)
               citSucc = cit.getCaseSuccessor();
+#else
+              citSucc = (*cit).getCaseSuccessor();
+#endif
               for (auto csit = sw->case_begin(), cse = sw->case_end();
                    csit != cse; ++csit)
+#if (LLVM_VERSION_MAJOR <= 4)
                 if (csit.getCaseSuccessor() != citSucc)
                   toBeRemovedBB.push_back(csit.getCaseSuccessor());
+#else
+                if ((*csit).getCaseSuccessor() != citSucc)
+                  toBeRemovedBB.push_back((*csit).getCaseSuccessor());
+#endif
               if (sw->getDefaultDest() != citSucc)
                 toBeRemovedBB.push_back(sw->getDefaultDest());
             }
@@ -3020,7 +3154,11 @@ void Mutation::computeModuleBufsByFunc(
               for (llvm::SwitchInst::CaseIt cit = sw->case_begin(),
                                             ce = sw->case_end();
                    cit != ce; ++cit) {
+#if (LLVM_VERSION_MAJOR <= 4)
                 MutantIDType mid = cit.getCaseValue()->getZExtValue();
+#else
+                MutantIDType mid = (*cit).getCaseValue()->getZExtValue();
+#endif
                 if (funcMutByMutID[mid] == nullptr) {
                   funcMutByMutID[mid] = &Func;
                   funcMutated = true;
@@ -3195,8 +3333,7 @@ unsigned Mutation::getHighestMutantID(llvm::Module const *module) {
          "Unmutated module passed to TCE");
   return llvm::dyn_cast<llvm::ConstantInt>(
              mutantIDSelectorGlobal->getInitializer())
-             ->getZExtValue() -
-         1;
+             ->getZExtValue() - 1;
 }
 
 void Mutation::loadMutantInfos(std::string filename) {

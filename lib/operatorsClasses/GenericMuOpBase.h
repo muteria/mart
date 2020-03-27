@@ -1,5 +1,5 @@
-#ifndef __MART_SEMU_GENMU_operatorClasses__GenericMuOpBase__
-#define __MART_SEMU_GENMU_operatorClasses__GenericMuOpBase__
+#ifndef __MART_GENMU_operatorClasses__GenericMuOpBase__
+#define __MART_GENMU_operatorClasses__GenericMuOpBase__
 
 /**
  * -==== GenericMuOpBase.h
@@ -521,7 +521,12 @@ protected:
    */
   llvm::Value *reverseCast(llvm::Instruction::CastOps toRev, llvm::Value *subj,
                            llvm::Type *destTy) {
+#if (LLVM_VERSION_MAJOR <= 3) && (LLVM_VERSION_MINOR < 9)
     llvm::IRBuilder<> builder(llvm::getGlobalContext());
+#else
+    static llvm::LLVMContext getGlobalContext;
+    llvm::IRBuilder<> builder(getGlobalContext);
+#endif
     switch (toRev) {
     case llvm::Instruction::Trunc:
       return builder.CreateZExt(subj, destTy);
@@ -996,4 +1001,4 @@ protected:
 
 } // namespace mart
 
-#endif //__MART_SEMU_GENMU_operatorClasses__GenericMuOpBase__
+#endif //__MART_GENMU_operatorClasses__GenericMuOpBase__

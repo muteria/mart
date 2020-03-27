@@ -1,5 +1,5 @@
-#ifndef __MART_SEMU_GENMU_operatorClasses__ReturnBreakContinue__
-#define __MART_SEMU_GENMU_operatorClasses__ReturnBreakContinue__
+#ifndef __MART_GENMU_operatorClasses__ReturnBreakContinue__
+#define __MART_GENMU_operatorClasses__ReturnBreakContinue__
 
 /**
  * -==== ReturnBreakContinue.h
@@ -140,7 +140,12 @@ public:
         return;
 
       llvm::Type *retType = curFunc->getReturnType();
+#if (LLVM_VERSION_MAJOR <= 3) && (LLVM_VERSION_MINOR < 9)
       llvm::IRBuilder<> builder(llvm::getGlobalContext());
+#else
+      static llvm::LLVMContext getGlobalContext;
+      llvm::IRBuilder<> builder(getGlobalContext);
+#endif
       // Case of main (delete lead to ret 0 - integer)
       if (curFunc->getName().equals(MI.G_MAIN_FUNCTION_NAME)) {
         assert(retType->isIntegerTy() &&
@@ -224,4 +229,4 @@ public:
 
 } // namespace mart
 
-#endif //__MART_SEMU_GENMU_operatorClasses__ReturnBreakContinue__
+#endif //__MART_GENMU_operatorClasses__ReturnBreakContinue__

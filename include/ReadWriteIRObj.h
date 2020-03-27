@@ -6,8 +6,15 @@
 //#include <fstream>
 #include <system_error> //error_code
 
-#include <llvm/Bitcode/ReaderWriter.h>
 #include <llvm/IR/LLVMContext.h>
+
+#if (LLVM_VERSION_MAJOR <= 3) && (LLVM_VERSION_MINOR < 9)
+#include <llvm/Bitcode/ReaderWriter.h>
+#else
+#include <llvm/Bitcode/BitcodeWriter.h>
+#include <llvm/Bitcode/BitcodeReader.h>
+#endif
+
 #include <llvm/IR/Module.h>
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Support/SourceMgr.h>
@@ -17,7 +24,7 @@
 
 #include "llvm/Support/MemoryBuffer.h"
 
-#ifdef MART_SEMU_GENMU_OBJECTFILE
+#ifdef MART_GENMU_OBJECTFILE
 #if (LLVM_VERSION_MAJOR <= 3) && (LLVM_VERSION_MINOR < 5)
 #include "llvm/PassManager.h"
 #else
@@ -30,7 +37,7 @@
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
-#endif //#ifdef MART_SEMU_GENMU_OBJECTFILE
+#endif //#ifdef MART_GENMU_OBJECTFILE
 
 #include "llvm/Transforms/Utils/Cloning.h" //for CloneModule
 
@@ -71,8 +78,11 @@ public:
                                                 mBuf->getBufferIdentifier()),
                           SMD, llvm::getGlobalContext())
                 .release());
-#else
+#elif (LLVM_VERSION_MAJOR <= 3) && (LLVM_VERSION_MINOR < 9)
     return (llvm::parseIR(*mBuf, SMD, llvm::getGlobalContext()).release());
+#else
+    static llvm::LLVMContext getGlobalContext;
+    return (llvm::parseIR(*mBuf, SMD, getGlobalContext).release());
 #endif
   }
 
@@ -89,8 +99,11 @@ public:
     llvm::SMDiagnostic SMD;
 #if (LLVM_VERSION_MAJOR <= 3) && (LLVM_VERSION_MINOR < 5)
     module.reset(llvm::ParseIRFile(filename, SMD, llvm::getGlobalContext()));
-#else
+#elif (LLVM_VERSION_MAJOR <= 3) && (LLVM_VERSION_MINOR < 9)
     module = llvm::parseIRFile(filename, SMD, llvm::getGlobalContext());
+#else
+    static llvm::LLVMContext getGlobalContext;
+    module = llvm::parseIRFile(filename, SMD, getGlobalContext);
 #endif
 
     if (!module) {
@@ -124,7 +137,7 @@ public:
     return true;
   }
 
-#ifdef MART_SEMU_GENMU_OBJECTFILE
+#ifdef MART_GENMU_OBJECTFILE
   static bool writeObj(llvm::Module *module, const std::string filename) {
     auto TargetTriple = llvm::sys::getDefaultTargetTriple();
     llvm::InitializeAllTargetInfos();
@@ -185,7 +198,7 @@ public:
 
     return true;
   }
-#endif //#ifdef MART_SEMU_GENMU_OBJECTFILE
+#endif //#ifdef MART_GENMU_OBJECTFILE
 };     // class ReadWriteIRObj
 
 } // namespace mart
